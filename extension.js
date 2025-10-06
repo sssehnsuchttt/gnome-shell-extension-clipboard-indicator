@@ -504,8 +504,11 @@ const ClipboardIndicator = GObject.registerClass({
         menuItem.entry = entry;
         menuItem.clipContents = entry.getStringValue();
         menuItem.radioGroup = this.clipItemsRadioGroup;
-        menuItem.buttonPressId = menuItem.connect('activate',
-            autoSet => this._onMenuItemSelectedAndMenuClose(menuItem, autoSet));
+            menuItem.buttonPressId = menuItem.connect('activate',
+            autoSet => {
+                if (PASTE_ON_SELECT) this.#pasteItem(menuItem);
+                this._onMenuItemSelectedAndMenuClose(menuItem, autoSet)
+            });
         menuItem.connect('key-focus-in', () => {
             const viewToScroll = menuItem.entry.isFavorite() ?
                 this.favoritesScrollView : this.historyScrollView;
