@@ -1360,8 +1360,8 @@ const ClipboardIndicator = GObject.registerClass({
             this._pastingResetTimeout = setTimeout(() => {
                 this.preventIndicatorUpdate = false;
                 this.#updateClipboard(currentlySelected.entry);
-            }, 50);
-        }, 50);
+            }, 150);
+        }, 150);
     }
 
     #clearTimeouts () {
