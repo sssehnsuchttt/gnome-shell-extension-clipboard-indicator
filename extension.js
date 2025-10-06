@@ -48,6 +48,29 @@ let NEXT_HISTORY_CLEAR        = -1;
 let CASE_SENSITIVE_SEARCH     = false;
 let REGEX_SEARCH              = false;
 
+export function getCurrentMonitorIndex() {
+    const workspaceManager = global.workspaceManager ?? global.workspace_manager;
+    const workspace = workspaceManager?.get_active_workspace();
+    const windows = workspace ? getWindows(workspace) : [];
+
+    if (windows.length > 0) {
+        return windows[0].get_monitor();
+    }
+
+    return global.display.get_current_monitor();
+}
+
+export function getWindows(workspace, modals = false) {
+    if (!workspace)
+        return [];
+
+    const windows = global.display.get_tab_list(Meta.TabList.NORMAL_ALL, workspace);
+
+    return windows
+        .map(window => window.is_attached_dialog() && !modals ? window.get_transient_for() : window)
+        .filter((window, index, array) => (!window.skip_taskbar && array.indexOf(window) === index) || window.is_attached_dialog());
+}
+
 export default class ClipboardIndicatorExtension extends Extension {
     enable () {
         this.clipboardIndicator = new ClipboardIndicator({
@@ -80,6 +103,10 @@ const ClipboardIndicator = GObject.registerClass({
         this.#clearTimeouts();
         this.dialogManager.destroy();
         this.keyboard.destroy();
+        if (this._centerAnchor) {
+            this._centerAnchor.destroy();
+            this._centerAnchor = null;
+        }
 
         super.destroy();
     }
@@ -97,6 +124,10 @@ const ClipboardIndicator = GObject.registerClass({
 
         this._shortcutsBindingIds = [];
         this.clipItemsRadioGroup = [];
+        
+        this._centerAnchor = new St.Widget({ opacity: 0, reactive: false });
+        this._centerAnchor.set_size(1, 1);
+        Main.uiGroup.add_child(this._centerAnchor);
 
         let hbox = new St.BoxLayout({
             style_class: 'panel-status-menu-box clipboard-indicator-hbox'
@@ -199,6 +230,9 @@ const ClipboardIndicator = GObject.registerClass({
         that._entryItem.add_child(that.searchEntry);
 
         that.menu.connect('open-state-changed', (self, open) => {
+            if (open && TOPBAR_DISPLAY_MODE === 3)
+                this.#positionMenuAtCenter();
+            
             this._setFocusOnOpenTimeout = setTimeout(() => {
                 if (open) {
                     if (this.clipItemsRadioGroup.length > 0) {
@@ -397,6 +431,33 @@ const ClipboardIndicator = GObject.registerClass({
         this.menu.box.insert_child_at_index(this.emptyStateSection, 0);
     }
 
+    #positionMenuAtCenter () {
+        if (TOPBAR_DISPLAY_MODE !== 3 || !this.menu?.actor || !this._centerAnchor || !this.menu._boxPointer)
+            return;
+
+        const monitorIndex = getCurrentMonitorIndex();
+        const workArea = monitorIndex >= 0
+            ? Main.layoutManager.getWorkAreaForMonitor(monitorIndex)
+            : Main.layoutManager.getWorkAreaForMonitor(Main.layoutManager.primaryIndex);
+        if (!workArea)
+            return;
+
+        const [, natWidth] = this.menu.actor.get_preferred_width(-1);
+        const [, natHeight] = this.menu.actor.get_preferred_height(natWidth);
+        const themeNode = this.menu.actor.get_theme_node();
+        const gap = themeNode ? themeNode.get_length('-boxpointer-gap') : 0;
+
+        const centerX = workArea.x + workArea.width / 2;
+        const centerY = workArea.y + workArea.height / 2;
+
+        const anchorX = Math.round(centerX);
+        const anchorY = Math.round(centerY - natHeight / 2 - gap);
+
+        this._centerAnchor.set_position(anchorX, anchorY);
+        this.menu._boxPointer.setSourceAlignment(0.5);
+        this.menu._boxPointer.setPosition(this._centerAnchor, 0.5);
+    }
+        
     /* When text change, this function will check, for each item of the
     historySection and favoritesSestion, if it should be visible or not (based on words contained
     in the clipContents attribute of the item). It doesn't destroy or create
@@ -1165,6 +1226,9 @@ const ClipboardIndicator = GObject.registerClass({
                 that._bindShortcuts();
             else
                 that._unbindShortcuts();
+
+            if (this.menu.isOpen && TOPBAR_DISPLAY_MODE === 3)
+                this.#positionMenuAtCenter();
         } catch (e) {
             console.error('Clipboard Indicator: Failed to update registry');
             console.error(e);
